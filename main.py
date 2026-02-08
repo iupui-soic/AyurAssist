@@ -11,7 +11,7 @@ from config import (
     GPU_TYPE, GPU_TIMEOUT, GPU_MIN_CONTAINERS, GPU_SCALEDOWN_WINDOW,
     CPU_TIMEOUT, CPU_SCALEDOWN_WINDOW,
     LLM_MODEL_ID, LLM_MAX_MODEL_LEN, LLM_MAX_TOKENS,
-    LLM_TEMPERATURE, LLM_TOP_P, LLM_TOP_K, LLM_REPETITION_PENALTY, LLM_DTYPE,
+    LLM_TEMPERATURE, LLM_TOP_P, LLM_TOP_K, LLM_DTYPE,
     NER_MODEL_NAME,
     CSV_SOURCE_PATH, CSV_CONTAINER_PATH, MODEL_CACHE_DIR, VOLUME_MOUNT_PATH,
     UMLS_SEARCH_URL, UMLS_ATOMS_URL_TEMPLATE, UMLS_REQUEST_TIMEOUT,
@@ -80,7 +80,7 @@ class LLMEngine:
         self.tokenizer = AutoTokenizer.from_pretrained(
             LLM_MODEL_ID,
             use_fast=False,
-            trust_remote_code=False,
+            trust_remote_code=True,
             cache_dir=MODEL_CACHE_DIR,
         )
         if self.tokenizer.pad_token_id is None:
@@ -112,7 +112,6 @@ class LLMEngine:
                 temperature=LLM_TEMPERATURE,
                 top_p=LLM_TOP_P,
                 top_k=LLM_TOP_K,
-                repetition_penalty=LLM_REPETITION_PENALTY,
                 eos_token_id=self.tokenizer.eos_token_id,
                 pad_token_id=self.tokenizer.pad_token_id,
                 use_cache=True,

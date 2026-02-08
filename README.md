@@ -38,7 +38,11 @@ Stays warm for 5 minutes after the last request (`scaledown_window=300`).
 
 ### GPU Container (transformers)
 
-Runs only the AyurParam LLM (`bharatgenai/AyurParam`) via HuggingFace `transformers` with `device_map="auto"` for native generation (AyurParam's custom tokenizer is not compatible with vLLM). Receives a prompt enriched with SNOMED codes and WHO ITA context, returns text containing:
+Runs only the AyurParam LLM (`bharatgenai/AyurParam`) via HuggingFace `transformers` with `device_map="auto"` for native generation (AyurParam's custom tokenizer is not compatible with vLLM).
+
+**Important:** AyurParam uses a custom 256k-vocabulary tokenizer that requires `trust_remote_code=True` for **both** the tokenizer and model. Loading the tokenizer with `trust_remote_code=False` causes it to fall back to a generic tokenizer, producing incorrect token IDs and hallucinated outputs. The `use_fast=False` flag is also required since the model only ships a slow tokenizer class.
+
+Receives a prompt enriched with SNOMED codes and WHO ITA context, returns text containing:
 
 - Condition name (Sanskrit and English)
 - Dosha involvement

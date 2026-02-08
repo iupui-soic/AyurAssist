@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AyurAssist - Ayurveda SNOMED Knowledge Portal</title>
+  <meta name="description" content="Connect modern symptoms to traditional Ayurvedic terminology using AI-powered clinical decision support">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300;0,9..144,500;0,9..144,700;1,9..144,400&family=DM+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main>
+    <div class="container">
+
+      <!-- Header -->
+      <div class="header">
+        <div class="header-tag">WHO ITA &middot; SNOMED CT</div>
+        <h1 class="header-title">AyurAssist</h1>
+        <p class="header-subtitle">AI-Powered Ayurveda Clinical Decision Support</p>
+      </div>
+
+      <!-- Pipeline Diagram -->
+      <div class="pipeline">
+        <div class="pipeline-step">
+          <span class="pipeline-icon">💬</span>
+          <span class="pipeline-label">Symptom Input</span>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <span class="pipeline-icon">🧠</span>
+          <span class="pipeline-label">Biomedical NER</span>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <span class="pipeline-icon">🔗</span>
+          <span class="pipeline-label">UMLS + WHO ITA</span>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <span class="pipeline-icon">🏥</span>
+          <span class="pipeline-label">SNOMED CT</span>
+        </div>
+        <div class="pipeline-arrow">&rarr;</div>
+        <div class="pipeline-step">
+          <span class="pipeline-icon">🌿</span>
+          <span class="pipeline-label">AyurParam</span>
+        </div>
+      </div>
+
+      <!-- Search Card -->
+      <div class="search-card">
+        <h2 class="search-title">Describe your symptoms</h2>
+        <p class="search-subtitle">Enter symptoms &mdash; AI will analyze with Biomedical NER &amp; AyurParam</p>
+
+        <div class="examples" id="examples">
+          <button class="example-btn" data-value="headache">headache</button>
+          <button class="example-btn" data-value="stomach pain">stomach pain</button>
+          <button class="example-btn" data-value="fever">fever</button>
+          <button class="example-btn" data-value="loss of appetite">loss of appetite</button>
+          <button class="example-btn" data-value="cough">cough</button>
+        </div>
+
+        <div class="input-row">
+          <input type="text" id="symptomInput" placeholder="e.g., I have severe headache and nausea" autocomplete="off">
+          <button id="analyzeBtn" disabled>Analyze</button>
+        </div>
+      </div>
+
+      <!-- Loading -->
+      <div id="loading" class="loading hidden">
+        <div class="spinner"></div>
+        <p>AI is analyzing... This may take 30-90s</p>
+      </div>
+
+      <!-- Error -->
+      <div id="error" class="error-alert hidden"></div>
+
+      <!-- Results -->
+      <div id="results" class="results hidden"></div>
+
+    </div>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

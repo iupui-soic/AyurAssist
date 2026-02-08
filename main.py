@@ -1,0 +1,389 @@
+import modal
+import json
+import csv
+import os
+import requests
+from difflib import SequenceMatcher
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, Request, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+
+from config import (
+    MODAL_APP_NAME, MODAL_VOLUME_NAME,
+    MODAL_SECRET_HUGGINGFACE, MODAL_SECRET_UMLS,
+    GPU_TYPE, GPU_TIMEOUT, GPU_MIN_CONTAINERS, GPU_SCALEDOWN_WINDOW,
+    CPU_TIMEOUT, CPU_SCALEDOWN_WINDOW,
+    LLM_MODEL_ID, LLM_MAX_MODEL_LEN, LLM_MAX_TOKENS,
+    LLM_TEMPERATURE, LLM_TOP_P, LLM_DTYPE,
+    NER_MODEL_ID, NER_AGGREGATION_STRATEGY,
+    CSV_SOURCE_PATH, CSV_CONTAINER_PATH, MODEL_CACHE_DIR, VOLUME_MOUNT_PATH,
+    UMLS_SEARCH_URL, UMLS_ATOMS_URL_TEMPLATE, UMLS_REQUEST_TIMEOUT,
+    FUZZY_MATCH_THRESHOLD, PYTHON_VERSION,
+)
+
+app = modal.App(MODAL_APP_NAME)
+
+# ---------------------------------------------------------------------------
+# Images
+# ---------------------------------------------------------------------------
+cpu_image = (
+    modal.Image.debian_slim(python_version=PYTHON_VERSION)
+    .pip_install(
+        "numpy==1.24.3",
+        "transformers==4.40.0",
+        "torch==2.1.0",
+        "accelerate==0.27.0",
+        "fastapi[standard]==0.109.0",
+        "huggingface_hub==0.20.0",
+        "requests==2.31.0"
+    )
+    .add_local_file(CSV_SOURCE_PATH, CSV_CONTAINER_PATH)
+)
+
+gpu_image = (
+    modal.Image.debian_slim(python_version=PYTHON_VERSION)
+    .pip_install(
+        "vllm",
+        "huggingface_hub==0.20.0",
+        # Needed because Modal loads the full module in every container
+        "fastapi[standard]==0.109.0",
+        "requests==2.31.0",
+    )
+)
+
+volume = modal.Volume.from_name(MODAL_VOLUME_NAME, create_if_missing=True)
+
+
+# ===================================================================
+# GPU Tier: vLLM engine for AyurParam (only LLM inference lives here)
+# ===================================================================
+
+@app.cls(
+    image=gpu_image,
+    gpu=GPU_TYPE,
+    timeout=GPU_TIMEOUT,
+    min_containers=GPU_MIN_CONTAINERS,
+    scaledown_window=GPU_SCALEDOWN_WINDOW,
+    volumes={VOLUME_MOUNT_PATH: volume},
+    secrets=[modal.Secret.from_name(MODAL_SECRET_HUGGINGFACE)]
+)
+class LLMEngine:
+    @modal.enter()
+    def setup(self):
+        from vllm import LLM, SamplingParams
+        from huggingface_hub import login
+
+        hf_token = os.environ.get("HF_TOKEN")
+        if hf_token:
+            login(token=hf_token)
+
+        self.llm = LLM(
+            model=LLM_MODEL_ID,
+            dtype=LLM_DTYPE,
+            max_model_len=LLM_MAX_MODEL_LEN,
+            download_dir=MODEL_CACHE_DIR,
+            trust_remote_code=True,
+        )
+        self.sampling_params = SamplingParams(
+            max_tokens=LLM_MAX_TOKENS,
+            temperature=LLM_TEMPERATURE,
+            top_p=LLM_TOP_P,
+        )
+        print("LLM engine ready (vLLM).")
+
+    @modal.method()
+    def generate(self, prompt: str) -> str:
+        outputs = self.llm.generate([prompt], self.sampling_params)
+        return outputs[0].outputs[0].text
+
+    @modal.method()
+    def warmup(self) -> dict:
+        return {"status": "ready"}
+
+
+# ===================================================================
+# CPU Tier: NER + CSV + UMLS orchestration, served as ASGI app
+# ===================================================================
+
+# --- Helper functions (pure, no class state) ---
+
+def _load_csv_lookup(csv_path):
+    snomed_lookup = {}
+    term_lookup = {}
+    try:
+        with open(csv_path, newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if row.get("Match_Status") == "Unmatched":
+                    continue
+                snomed = row.get("SNOMED_Code", "").strip()
+                if snomed:
+                    snomed_lookup[snomed] = row
+                for field in ("Search_Term_Used", "Ayurveda_Term"):
+                    term = row.get(field, "").strip().lower()
+                    if term:
+                        term_lookup[term] = row
+    except Exception as e:
+        print(f"CSV load error: {e}")
+    return snomed_lookup, term_lookup
+
+
+def _fuzzy_csv_lookup(term_lookup, keyword):
+    key = keyword.strip().lower()
+    if key in term_lookup:
+        return term_lookup[key]
+    best_match = None
+    best_score = 0.0
+    for term, row in term_lookup.items():
+        score = SequenceMatcher(None, key, term).ratio()
+        if score > best_score:
+            best_score = score
+            best_match = row
+    return best_match if best_score >= FUZZY_MATCH_THRESHOLD else None
+
+
+def _lookup_umls(api_key, keyword):
+    """Two-step UMLS: search -> CUI, then CUI atoms -> SNOMED code."""
+    umls_cui = "N/A"
+    snomed_code = "N/A"
+    if not api_key:
+        return umls_cui, snomed_code
+
+    # Step 1: keyword -> CUI
+    try:
+        r = requests.get(
+            UMLS_SEARCH_URL,
+            params={"string": keyword, "apiKey": api_key, "returnIdType": "concept"},
+            timeout=UMLS_REQUEST_TIMEOUT,
+        )
+        if r.status_code == 200:
+            results = r.json().get("result", {}).get("results", [])
+            if results:
+                umls_cui = results[0].get("ui", "N/A")
+    except Exception as e:
+        print(f"UMLS search error: {e}")
+        return umls_cui, snomed_code
+
+    if umls_cui == "N/A":
+        return umls_cui, snomed_code
+
+    # Step 2: CUI -> SNOMED code via atoms
+    try:
+        r = requests.get(
+            UMLS_ATOMS_URL_TEMPLATE.format(cui=umls_cui),
+            params={"apiKey": api_key, "sabs": "SNOMEDCT_US", "ttys": "PT", "pageSize": 5},
+            timeout=UMLS_REQUEST_TIMEOUT,
+        )
+        if r.status_code == 200:
+            atoms = r.json().get("result", [])
+            if atoms:
+                code_uri = atoms[0].get("code", "")
+                snomed_code = code_uri.rsplit("/", 1)[-1] if "/" in code_uri else code_uri
+    except Exception as e:
+        print(f"UMLS atoms error: {e}")
+
+    return umls_cui, snomed_code
+
+
+def _build_prompt(condition, snomed_code, csv_data):
+    csv_context = ""
+    if csv_data:
+        parts = []
+        if csv_data.get("Ayurveda_Term"):
+            parts.append(f"Ayurveda condition: {csv_data['Ayurveda_Term']}")
+        if csv_data.get("Sanskrit_IAST"):
+            parts.append(f"Sanskrit (IAST): {csv_data['Sanskrit_IAST']}")
+        if csv_data.get("Description"):
+            parts.append(f"Description: {csv_data['Description'][:300]}")
+        if csv_data.get("ITA_ID"):
+            parts.append(f"ITA classification: {csv_data['ITA_ID']}")
+        csv_context = " | ".join(parts)
+
+    base = f"<user> Provide Ayurvedic treatment for {condition} (SNOMED: {snomed_code})."
+    if csv_context:
+        base += f" Reference: {csv_context}."
+    base += (
+        " Return valid JSON with fields: condition_name, sanskrit_name, brief_description,"
+        " dosha_involvement, recommended_herbs, dietary_advice, lifestyle_recommendations."
+        " </user> <assistant>"
+    )
+    return base
+
+
+def _parse_llm_json(raw_text, condition, csv_data):
+    try:
+        start = raw_text.find("{")
+        end = raw_text.rfind("}") + 1
+        if start >= 0 and end > start:
+            return json.loads(raw_text[start:end])
+        print(f"No JSON found in LLM output for '{condition}'")
+    except json.JSONDecodeError as e:
+        print(f"JSON parse error for '{condition}': {e}")
+    # Fallback
+    result = {"condition_name": condition, "brief_description": "Analysis complete."}
+    if csv_data:
+        if csv_data.get("Sanskrit_IAST"):
+            result["sanskrit_name"] = csv_data["Sanskrit_IAST"]
+        if csv_data.get("Description"):
+            result["brief_description"] = csv_data["Description"][:500]
+        if csv_data.get("Ayurveda_Term"):
+            result["condition_name"] = csv_data["Ayurveda_Term"]
+    return result
+
+
+# --- ASGI lifespan: loads NER + CSV once, kicks off GPU warmup in parallel ---
+
+@asynccontextmanager
+async def lifespan(web_app):
+    import asyncio
+
+    # Fire GPU warmup immediately so it runs in parallel with NER loading
+    async def _gpu_warmup():
+        try:
+            await LLMEngine().warmup.remote.aio()
+            print("GPU container warm.")
+        except Exception as e:
+            print(f"GPU warmup failed (will cold-start on first request): {e}")
+
+    asyncio.create_task(_gpu_warmup())
+
+    # Load NER model in a thread so it doesn't block the event loop
+    # (allows the GPU warmup coroutine above to make progress)
+    from transformers import pipeline as hf_pipeline
+
+    def _load_ner():
+        return hf_pipeline(
+            "ner",
+            model=NER_MODEL_ID,
+            aggregation_strategy=NER_AGGREGATION_STRATEGY,
+            device=-1,
+        )
+
+    web_app.state.ner = await asyncio.to_thread(_load_ner)
+
+    # CSV and config (fast)
+    web_app.state.snomed_lookup, web_app.state.term_lookup = _load_csv_lookup(
+        CSV_CONTAINER_PATH
+    )
+    web_app.state.umls_api_key = os.environ.get("UMLS_API_KEY", "")
+
+    print("CPU engine ready.")
+    yield
+
+
+# --- ASGI app function ---
+
+@app.function(
+    image=cpu_image,
+    timeout=CPU_TIMEOUT,
+    scaledown_window=CPU_SCALEDOWN_WINDOW,
+    secrets=[
+        modal.Secret.from_name(MODAL_SECRET_UMLS),
+        modal.Secret.from_name(MODAL_SECRET_HUGGINGFACE),
+    ],
+)
+@modal.asgi_app()
+def fastapi_app():
+    web = FastAPI(lifespan=lifespan)
+    web.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+
+    @web.get("/warmup")
+    async def warmup():
+        """Called by the frontend on page load. Returns immediately;
+        the GPU container spins up in the background."""
+        import asyncio
+
+        async def _wake():
+            try:
+                await LLMEngine().warmup.remote.aio()
+            except Exception as e:
+                print(f"Warmup ping error: {e}")
+
+        asyncio.create_task(_wake())
+        return {"status": "warming"}
+
+    @web.post("/")
+    async def analyze(request: Request):
+        import asyncio
+
+        try:
+            body = await request.json()
+            user_input = body.get("text", "").strip()
+            if not user_input:
+                raise HTTPException(status_code=400, detail="Missing 'text' field")
+
+            st = request.app.state
+
+            # 1. NER (CPU, in-process -- run in thread to keep event loop free)
+            entities = []
+            keyword = user_input
+            try:
+                raw_res = await asyncio.to_thread(st.ner, user_input)
+                for ent in raw_res:
+                    entities.append({
+                        "word": str(ent["word"]),
+                        "score": float(ent["score"]),
+                        "entity_group": str(ent.get("entity_group", "")),
+                    })
+                if entities:
+                    priority = [e for e in entities if e["entity_group"] in ("Disease", "Symptom")]
+                    best = sorted(priority or entities, key=lambda x: x["score"], reverse=True)[0]
+                    keyword = best["word"]
+            except Exception as e:
+                print(f"NER error: {e}")
+
+            # 2. UMLS (network I/O -- run in thread)
+            umls_cui, snomed_code = await asyncio.to_thread(
+                _lookup_umls, st.umls_api_key, keyword
+            )
+
+            # 3. CSV lookup (fast, in-process)
+            csv_data = None
+            if snomed_code != "N/A":
+                csv_data = st.snomed_lookup.get(snomed_code)
+            if csv_data is None:
+                csv_data = _fuzzy_csv_lookup(st.term_lookup, keyword)
+
+            # 4. LLM generation (remote GPU call via vLLM)
+            prompt = _build_prompt(keyword, snomed_code, csv_data)
+            try:
+                raw_text = await LLMEngine().generate.remote.aio(prompt)
+            except Exception as e:
+                print(f"LLM error: {e}")
+                raw_text = ""
+
+            # 5. Parse and respond
+            treatment = _parse_llm_json(raw_text, keyword, csv_data)
+
+            return {
+                "input_text": user_input,
+                "clinical_entities": entities if entities else [{"word": keyword, "score": 1.0}],
+                "umls_cui": umls_cui,
+                "snomed_code": snomed_code,
+                "csv_match": {
+                    "ita_id": csv_data.get("ITA_ID", ""),
+                    "ayurveda_term": csv_data.get("Ayurveda_Term", ""),
+                    "sanskrit_iast": csv_data.get("Sanskrit_IAST", ""),
+                    "sanskrit": csv_data.get("Sanskrit", ""),
+                    "description": csv_data.get("Description", ""),
+                } if csv_data else None,
+                "results": [{
+                    "ayurveda_term": (csv_data.get("Ayurveda_Term") if csv_data else None)
+                                     or treatment.get("condition_name", keyword),
+                    "snomed_code": snomed_code,
+                    "treatment_info": treatment,
+                }],
+            }
+        except HTTPException:
+            raise
+        except Exception as e:
+            print(f"Request error: {e}")
+            raise HTTPException(status_code=500, detail=str(e))
+
+    return web

@@ -25,9 +25,11 @@ CPU_SCALEDOWN_WINDOW = 300     # seconds idle before shutdown
 # ── Models ───────────────────────────────────────────────────
 LLM_MODEL_ID = "bharatgenai/AyurParam"
 LLM_MAX_MODEL_LEN = 2048
-LLM_MAX_TOKENS = 2000
-LLM_TEMPERATURE = 0.3
-LLM_TOP_P = 0.9
+LLM_MAX_TOKENS = 600
+LLM_TEMPERATURE = 0.6
+LLM_TOP_P = 0.95
+LLM_TOP_K = 50
+LLM_REPETITION_PENALTY = 1.1
 LLM_DTYPE = "half"
 
 NER_MODEL_ID = "d4data/biomedical-ner-all"

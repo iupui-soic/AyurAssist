@@ -87,6 +87,7 @@ function renderResults(data) {
     return;
   }
 
+  const resp = treatment.ayurparam_responses || {};
   let html = '';
 
   // Clinical Entities & Medical Codes
@@ -117,124 +118,24 @@ function renderResults(data) {
   html += '<p>' + esc(treatment.sanskrit_name || '') + '</p>';
   html += '</div>';
 
-  // Clinical Overview
-  html += '<div class="card"><h3>\uD83D\uDCCB Clinical Overview</h3>';
-  html += '<p>' + esc(treatment.brief_description || '') + '</p>';
-  html += '<div class="overview-meta">';
-  html += '<div class="meta-box"><strong>Dosha:</strong> ' + esc(treatment.dosha_involvement || '') + '</div>';
-  html += '<div class="meta-box"><strong>Prognosis:</strong> ' + esc(treatment.prognosis || '') + '</div>';
-  html += '</div></div>';
+  // Render each AyurParam response section
+  var sections = [
+    { key: 'overview_dosha_causes', title: '\uD83D\uDCCB Overview, Dosha & Causes' },
+    { key: 'symptoms', title: '\uD83E\uDE7A Symptoms (Purvarupa & Rupa)' },
+    { key: 'single_drug_remedies', title: '\uD83C\uDF3F Single Drug Remedies (Ottamooli)' },
+    { key: 'classical_formulations', title: '\uD83D\uDCDC Classical Formulations' },
+    { key: 'panchakarma_diet_lifestyle_yoga', title: '\uD83C\uDF7D\uFE0F Panchakarma, Diet, Lifestyle & Yoga' },
+    { key: 'prognosis_modern_warnings', title: '\u26A0\uFE0F Prognosis & Warning Signs' },
+  ];
 
-  // Nidana (Causes)
-  if (treatment.nidana_causes && treatment.nidana_causes.length) {
-    html += '<div class="card"><h3>\uD83D\uDD0D Nidana (Causes)</h3><ul>';
-    treatment.nidana_causes.forEach((c) => {
-      html += '<li>' + esc(c) + '</li>';
-    });
-    html += '</ul></div>';
-  }
-
-  // Rupa (Symptoms)
-  if (treatment.rupa_symptoms && treatment.rupa_symptoms.length) {
-    html += '<div class="card"><h3>\uD83E\uDE7A Rupa (Symptoms)</h3><div class="symptom-tags">';
-    treatment.rupa_symptoms.forEach((s) => {
-      html += '<span class="symptom-tag">' + esc(s) + '</span>';
-    });
-    html += '</div></div>';
-  }
-
-  // Ottamooli (Single Remedies)
-  if (treatment.ottamooli_single_remedies && treatment.ottamooli_single_remedies.length) {
-    html += '<div class="card"><h3>\uD83C\uDF3F Ottamooli (Single Remedies)</h3>';
-    treatment.ottamooli_single_remedies.forEach((r) => {
-      html += '<div class="remedy-item">';
-      html += '<div class="name">' + esc(r.medicine_name || '') + '</div>';
-      html += '<div class="sanskrit">' + esc(r.sanskrit_name || '') + '</div>';
-      html += '<div class="remedy-details">';
-      html += '<div><strong>Part:</strong> ' + esc(r.part_used || '') + '</div>';
-      html += '<div><strong>Dosage:</strong> ' + esc(r.dosage || '') + '</div>';
-      html += '<div><strong>Preparation:</strong> ' + esc(r.preparation || '') + '</div>';
-      html += '<div><strong>Timing:</strong> ' + esc(r.timing || '') + '</div>';
-      html += '<div class="full-width"><strong>Duration:</strong> ' + esc(r.duration || '') + '</div>';
-      html += '</div></div>';
-    });
-    html += '</div>';
-  }
-
-  // Classical Formulations
-  if (treatment.classical_formulations && treatment.classical_formulations.length) {
-    html += '<div class="card"><h3>\uD83D\uDCDC Classical Formulations</h3>';
-    treatment.classical_formulations.forEach((f) => {
-      html += '<div class="formulation-item">';
-      html += '<div class="name">' + esc(f.name || '') + '</div>';
-      html += '<div class="english">' + esc(f.english_name || '') + '</div>';
-      html += '<div class="details"><strong>Form:</strong> ' + esc(f.form || '') + ' | <strong>Dosage:</strong> ' + esc(f.dosage || '') + '</div>';
-      if (f.reference_text) {
-        html += '<div class="reference">\uD83D\uDCDA ' + esc(f.reference_text) + '</div>';
-      }
+  sections.forEach(function(sec) {
+    var text = resp[sec.key];
+    if (text) {
+      html += '<div class="card"><h3>' + sec.title + '</h3>';
+      html += '<div style="white-space:pre-line;font-size:0.9rem;line-height:1.7">' + esc(text) + '</div>';
       html += '</div>';
-    });
-    html += '</div>';
-  }
-
-  // Pathya (Dietary Advice)
-  if (treatment.pathya_dietary_advice) {
-    const diet = treatment.pathya_dietary_advice;
-    html += '<div class="card"><h3>\uD83C\uDF7D\uFE0F Pathya (Dietary Advice)</h3>';
-    html += '<div class="diet-grid">';
-
-    html += '<div class="favor"><h4>\u2713 Foods to Favor</h4><ul>';
-    if (diet.foods_to_favor) {
-      diet.foods_to_favor.forEach((f) => { html += '<li>' + esc(f) + '</li>'; });
     }
-    html += '</ul></div>';
-
-    html += '<div class="avoid"><h4>\u2717 Foods to Avoid</h4><ul>';
-    if (diet.foods_to_avoid) {
-      diet.foods_to_avoid.forEach((f) => { html += '<li>' + esc(f) + '</li>'; });
-    }
-    html += '</ul></div>';
-
-    html += '</div>';
-
-    if (diet.specific_dietary_rules) {
-      html += '<div class="diet-note">\uD83D\uDCA1 ' + esc(diet.specific_dietary_rules) + '</div>';
-    }
-    html += '</div>';
-  }
-
-  // Lifestyle & Yoga (side by side)
-  const hasLifestyle = treatment.vihara_lifestyle && treatment.vihara_lifestyle.length;
-  const hasYoga = treatment.yoga_exercises && treatment.yoga_exercises.length;
-
-  if (hasLifestyle || hasYoga) {
-    html += '<div class="two-col-grid">';
-
-    if (hasLifestyle) {
-      html += '<div class="card"><h3>\uD83C\uDFC3 Vihara (Lifestyle)</h3><ul style="font-size:0.875rem;line-height:1.6">';
-      treatment.vihara_lifestyle.forEach((v) => { html += '<li>' + esc(v) + '</li>'; });
-      html += '</ul></div>';
-    }
-
-    if (hasYoga) {
-      html += '<div class="card"><h3>\uD83E\uDDD8 Yoga Exercises</h3><div class="yoga-tags">';
-      treatment.yoga_exercises.forEach((y) => {
-        html += '<span class="yoga-tag">' + esc(y) + '</span>';
-      });
-      html += '</div></div>';
-    }
-
-    html += '</div>';
-  }
-
-  // Warning Signs
-  if (treatment.warning_signs && treatment.warning_signs.length) {
-    html += '<div class="card"><h3>\u26A0\uFE0F Warning Signs</h3>';
-    treatment.warning_signs.forEach((w) => {
-      html += '<div class="warning-item">! ' + esc(w) + '</div>';
-    });
-    html += '</div>';
-  }
+  });
 
   // Disclaimer
   if (treatment.disclaimer) {

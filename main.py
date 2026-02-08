@@ -11,7 +11,7 @@ from config import (
     GPU_TYPE, GPU_TIMEOUT, GPU_MIN_CONTAINERS, GPU_SCALEDOWN_WINDOW,
     CPU_TIMEOUT, CPU_SCALEDOWN_WINDOW,
     LLM_MODEL_ID, LLM_MAX_MODEL_LEN, LLM_MAX_TOKENS,
-    LLM_TEMPERATURE, LLM_TOP_P, LLM_DTYPE,
+    LLM_TEMPERATURE, LLM_TOP_P, LLM_TOP_K, LLM_REPETITION_PENALTY, LLM_DTYPE,
     NER_MODEL_ID, NER_AGGREGATION_STRATEGY,
     CSV_SOURCE_PATH, CSV_CONTAINER_PATH, MODEL_CACHE_DIR, VOLUME_MOUNT_PATH,
     UMLS_SEARCH_URL, UMLS_ATOMS_URL_TEMPLATE, UMLS_REQUEST_TIMEOUT,
@@ -86,6 +86,8 @@ class LLMEngine:
             trust_remote_code=False,
             cache_dir=MODEL_CACHE_DIR,
         )
+        if self.tokenizer.pad_token_id is None:
+            self.tokenizer.pad_token_id = self.tokenizer.eos_token_id
         self.model = AutoModelForCausalLM.from_pretrained(
             LLM_MODEL_ID,
             torch_dtype=torch.float16,
@@ -100,16 +102,25 @@ class LLMEngine:
         import torch
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        prompt_len = inputs["input_ids"].shape[1]
+        # Cap generation so prompt + output stays within 2048 context
+        max_new = min(LLM_MAX_TOKENS, LLM_MAX_MODEL_LEN - prompt_len)
+        if max_new < 50:
+            print(f"Warning: prompt too long ({prompt_len} tokens), only {max_new} tokens left for generation")
         with torch.no_grad():
             output_ids = self.model.generate(
                 **inputs,
-                max_new_tokens=LLM_MAX_TOKENS,
+                max_new_tokens=max_new,
+                do_sample=True,
                 temperature=LLM_TEMPERATURE,
                 top_p=LLM_TOP_P,
-                do_sample=True,
+                top_k=LLM_TOP_K,
+                repetition_penalty=LLM_REPETITION_PENALTY,
+                eos_token_id=self.tokenizer.eos_token_id,
+                pad_token_id=self.tokenizer.pad_token_id,
+                use_cache=True,
             )
-        # Decode only the newly generated tokens (skip the prompt)
-        new_tokens = output_ids[0][inputs["input_ids"].shape[1]:]
+        new_tokens = output_ids[0][prompt_len:]
         return self.tokenizer.decode(new_tokens, skip_special_tokens=True)
 
     @modal.method()
@@ -203,50 +214,68 @@ def _lookup_umls(api_key, keyword):
     return umls_cui, snomed_code
 
 
-def _build_prompt(condition, snomed_code, csv_data):
-    csv_context = ""
-    if csv_data:
-        parts = []
-        if csv_data.get("Ayurveda_Term"):
-            parts.append(f"Ayurveda condition: {csv_data['Ayurveda_Term']}")
-        if csv_data.get("Sanskrit_IAST"):
-            parts.append(f"Sanskrit (IAST): {csv_data['Sanskrit_IAST']}")
-        if csv_data.get("Description"):
-            parts.append(f"Description: {csv_data['Description'][:300]}")
-        if csv_data.get("ITA_ID"):
-            parts.append(f"ITA classification: {csv_data['ITA_ID']}")
-        csv_context = " | ".join(parts)
+def _build_questions(condition, sanskrit, description):
+    """Build the 6 focused questions matching the notebook's multi-question approach."""
+    sanskrit_part = f" ({sanskrit})" if sanskrit else ""
+    return [
+        (
+            f"Explain {condition}{sanskrit_part} in Ayurveda in 2-3 sentences. "
+            f"Which doshas and srotas are involved? List the main nidana (causes)."
+        ),
+        (
+            f"What are the purvarupa (prodromal symptoms) and rupa (main symptoms) "
+            f"of {condition}{sanskrit_part} in Ayurveda? List them clearly."
+        ),
+        (
+            f"List 3 single drug remedies (dravya/ottamooli) for {condition}{sanskrit_part}. "
+            f"For each give: name, Sanskrit name, part used, preparation, dosage, and duration."
+        ),
+        (
+            f"List 2-3 classical Ayurvedic compound formulations (yogas) for {condition}{sanskrit_part}. "
+            f"Give name, form, dosage, and reference text."
+        ),
+        (
+            f"For {condition}{sanskrit_part}: "
+            f"1) Recommended panchakarma treatment. "
+            f"2) Pathya - foods to eat and avoid. "
+            f"3) Vihara - lifestyle advice. "
+            f"4) Recommended yoga and pranayama."
+        ),
+        (
+            f"For {condition}{sanskrit_part}: "
+            f"1) What is the prognosis - Sadhya, Yapya, or Asadhya? "
+            f"2) What is the modern medical correlation? "
+            f"3) What are the danger signs needing immediate attention?"
+        ),
+    ]
 
-    base = f"<user> Provide Ayurvedic treatment for {condition} (SNOMED: {snomed_code})."
-    if csv_context:
-        base += f" Reference: {csv_context}."
-    base += (
-        " Return valid JSON with fields: condition_name, sanskrit_name, brief_description,"
-        " dosha_involvement, recommended_herbs, dietary_advice, lifestyle_recommendations."
-        " </user> <assistant>"
-    )
-    return base
 
-
-def _parse_llm_json(raw_text, condition, csv_data):
-    try:
-        start = raw_text.find("{")
-        end = raw_text.rfind("}") + 1
-        if start >= 0 and end > start:
-            return json.loads(raw_text[start:end])
-        print(f"No JSON found in LLM output for '{condition}'")
-    except json.JSONDecodeError as e:
-        print(f"JSON parse error for '{condition}': {e}")
-    # Fallback
-    result = {"condition_name": condition, "brief_description": "Analysis complete."}
-    if csv_data:
-        if csv_data.get("Sanskrit_IAST"):
-            result["sanskrit_name"] = csv_data["Sanskrit_IAST"]
-        if csv_data.get("Description"):
-            result["brief_description"] = csv_data["Description"][:500]
-        if csv_data.get("Ayurveda_Term"):
-            result["condition_name"] = csv_data["Ayurveda_Term"]
-    return result
+def _build_treatment_from_responses(responses, condition, sanskrit, csv_data):
+    """Assemble the 6 text responses into a structured treatment dict."""
+    return {
+        "condition_name": (csv_data.get("Ayurveda_Term") if csv_data else None) or condition,
+        "sanskrit_name": (csv_data.get("Sanskrit_IAST") if csv_data else None) or sanskrit,
+        "brief_description": responses[0][:500] if responses[0] else "",
+        "dosha_involvement": "",
+        "nidana_causes": [],
+        "rupa_symptoms": [],
+        "ottamooli_single_remedies": [],
+        "classical_formulations": [],
+        "pathya_dietary_advice": {"foods_to_favor": [], "foods_to_avoid": [], "specific_dietary_rules": ""},
+        "vihara_lifestyle": [],
+        "yoga_exercises": [],
+        "prognosis": "",
+        "warning_signs": [],
+        "disclaimer": "This information is for educational purposes only. Consult a qualified Ayurvedic practitioner.",
+        "ayurparam_responses": {
+            "overview_dosha_causes": responses[0],
+            "symptoms": responses[1],
+            "single_drug_remedies": responses[2],
+            "classical_formulations": responses[3],
+            "panchakarma_diet_lifestyle_yoga": responses[4],
+            "prognosis_modern_warnings": responses[5],
+        },
+    }
 
 
 # --- ASGI lifespan: loads NER + CSV once, kicks off GPU warmup in parallel ---
@@ -371,16 +400,26 @@ def fastapi_app():
             if csv_data is None:
                 csv_data = _fuzzy_csv_lookup(st.term_lookup, keyword)
 
-            # 4. LLM generation (remote GPU call)
-            prompt = _build_prompt(keyword, snomed_code, csv_data)
-            try:
-                raw_text = await LLMEngine().generate.remote.aio(prompt)
-            except Exception as e:
-                print(f"LLM error: {e}")
-                raw_text = ""
+            # 4. LLM generation — 6 focused questions (matching notebook approach)
+            sanskrit = (csv_data.get("Sanskrit_IAST", "") if csv_data else "") or ""
+            description = (csv_data.get("Description", "") if csv_data else "") or ""
+            questions = _build_questions(keyword, sanskrit, description)
 
-            # 5. Parse and respond
-            treatment = _parse_llm_json(raw_text, keyword, csv_data)
+            llm = LLMEngine()
+            responses = []
+            for q in questions:
+                prompt = f"<user> {q} <assistant>"
+                try:
+                    resp = await llm.generate.remote.aio(prompt)
+                    responses.append(resp.strip())
+                except Exception as e:
+                    print(f"LLM error for question: {e}")
+                    responses.append("")
+
+            # 5. Assemble treatment from responses
+            treatment = _build_treatment_from_responses(
+                responses, keyword, sanskrit, csv_data
+            )
 
             return {
                 "input_text": user_input,

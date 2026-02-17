@@ -1,0 +1,37 @@
+\begin{table*}[t]
+\centering
+\caption{Performance comparison on BhashaBench-Ayur (BBA) benchmark. Accuracy (\%) is reported for English (9,348 questions), Hindi (5,615 questions), and Overall (weighted by sample count). Models are grouped by parameter range. Best result per column is in \textbf{bold}.}
+\label{tab:bba-results}
+\begin{tabular}{llccc}
+\toprule
+\textbf{Model} & \textbf{Params} & \textbf{BBA English} & \textbf{BBA Hindi} & \textbf{BBA Overall} \\
+\midrule
+\multicolumn{5}{l}{\textit{Small Models (1.5--3B)}} \\
+\midrule
+Llama-3.2-1B-Instruct       & 1B   & 26.77 & 25.82 & 26.41 \\
+gemma-2-2B-it                & 2B   & 29.38 & 26.79 & 28.40 \\
+granite-3.1-2B               & 2B   & 33.39 & 27.30 & 31.10 \\
+Qwen2.5-3B-Instruct         & 3B   & 35.22 & 28.46 & 32.68 \\
+Llama-3.2-3B-Instruct       & 3B   & 35.31 & 29.67 & 33.20 \\
+AyurParam-2.9B-Instruct     & 2.9B & 41.12 & 38.04 & 39.97 \\
+\midrule
+\multicolumn{5}{l}{\textit{Medium Models (4--27B)}} \\
+\midrule
+aya-23-8B                    & 8B   & 33.84 & 28.87 & 31.97 \\
+Nemotron-4-Mini-Hindi-4B-Instruct & 4B & 33.38 & 33.82 & 33.54 \\
+Llama-3.1-8B-Instruct       & 8B   & 36.86 & 31.26 & 34.76 \\
+Indic-gemma-7B-Navarasa-2.0 & 7B   & 37.12 & 31.83 & 35.13 \\
+gpt-oss-20B                  & 20B  & 38.30 & 33.09 & 36.34 \\
+Pangea-7B                    & 7B   & 40.69 & 31.93 & 37.41 \\
+gemma-2-27B-it               & 27B  & 40.45 & 33.89 & 37.99 \\
+\midrule
+\multicolumn{5}{l}{\textit{Large Models (32--120B)}$^\dagger$} \\
+\midrule
+GPT-OSS-120B                 & 120B & 55.16 & 47.14 & 52.15 \\
+Qwen3-32B                    & 32B  & \textbf{57.35} & \textbf{49.07} & \textbf{54.24} \\
+\bottomrule
+\end{tabular}
+
+\vspace{0.5em}
+\footnotesize{Models in the Small and Medium groups were evaluated using loglikelihood scoring (multiple-choice) as reported in~\cite{ayurparam2024}. $^\dagger$Large models were evaluated using generate-until with chat completions API (Groq) and regex-based answer extraction.}
+\end{table*}

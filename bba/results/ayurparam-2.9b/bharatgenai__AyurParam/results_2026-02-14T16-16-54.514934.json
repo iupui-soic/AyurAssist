@@ -1,0 +1,234 @@
+{
+  "results": {
+    "bba_genai": {
+      "alias": "bba_genai"
+    },
+    "bba_genai_English": {
+      "alias": " - bba_genai_English",
+      "exact_match,get_answer": 0.04321780059905862,
+      "exact_match_stderr,get_answer": 0.002103302571309281
+    },
+    "bba_genai_Hindi": {
+      "alias": " - bba_genai_Hindi",
+      "exact_match,get_answer": 0.010507569011576135,
+      "exact_match_stderr,get_answer": 0.0013608841614677777
+    }
+  },
+  "groups": {
+    "bba_genai": {
+      "alias": "bba_genai"
+    }
+  },
+  "group_subtasks": {
+    "bba_genai": [
+      "bba_genai_English",
+      "bba_genai_Hindi"
+    ]
+  },
+  "configs": {
+    "bba_genai_English": {
+      "task": "bba_genai_English",
+      "task_alias": "bba_genai_English",
+      "tag": "bba-genai",
+      "dataset_path": "bharatgenai/BhashaBench-Ayur",
+      "dataset_name": "English",
+      "dataset_kwargs": {
+        "token": true
+      },
+      "test_split": "test",
+      "doc_to_text": "def doc_to_text_genai(doc) -> str:\n    \"\"\"\n    Prompt for generate_until tasks that explicitly requests only the answer letter.\n    \"\"\"\n    choices = [doc[\"option_a\"], doc[\"option_b\"], doc[\"option_c\"], doc[\"option_d\"]]\n    option_choices = {\n        \"A\": choices[0],\n        \"B\": choices[1],\n        \"C\": choices[2],\n        \"D\": choices[3],\n    }\n\n    prompt = \"Question: \" + doc[\"question\"] + \"\\nChoices:\\n\"\n    for choice, option in option_choices.items():\n        prompt += f\"{choice.upper()}. {option}\\n\"\n    prompt += \"Answer with ONLY the letter (A, B, C, or D):\"\n\n    return prompt\n",
+      "doc_to_target": "def doc_to_target_letter(doc) -> str:\n    \"\"\"\n    Returns the correct answer letter (A, B, C, or D) for generate_until tasks.\n    \"\"\"\n    return doc[\"correct_answer\"]\n",
+      "unsafe_code": false,
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "exact_match",
+          "aggregation": "mean",
+          "higher_is_better": true,
+          "ignore_case": true,
+          "ignore_punctuation": true
+        }
+      ],
+      "output_type": "generate_until",
+      "generation_kwargs": {
+        "until": [],
+        "temperature": 0.0,
+        "max_gen_toks": 50
+      },
+      "repeats": 1,
+      "filter_list": [
+        {
+          "name": "get_answer",
+          "filter": [
+            {
+              "function": "regex",
+              "regex_pattern": "\\b([A-Da-d])\\b",
+              "group_select": -1
+            },
+            {
+              "function": "uppercase"
+            },
+            {
+              "function": "take_first"
+            }
+          ]
+        }
+      ],
+      "should_decontaminate": false,
+      "metadata": {
+        "version": 0.0,
+        "pretrained": "bharatgenai/AyurParam",
+        "dtype": "bfloat16",
+        "max_length": 2048
+      }
+    },
+    "bba_genai_Hindi": {
+      "task": "bba_genai_Hindi",
+      "task_alias": "bba_genai_Hindi",
+      "tag": "bba-genai",
+      "dataset_path": "bharatgenai/BhashaBench-Ayur",
+      "dataset_name": "Hindi",
+      "dataset_kwargs": {
+        "token": true
+      },
+      "test_split": "test",
+      "doc_to_text": "def doc_to_text_genai(doc) -> str:\n    \"\"\"\n    Prompt for generate_until tasks that explicitly requests only the answer letter.\n    \"\"\"\n    choices = [doc[\"option_a\"], doc[\"option_b\"], doc[\"option_c\"], doc[\"option_d\"]]\n    option_choices = {\n        \"A\": choices[0],\n        \"B\": choices[1],\n        \"C\": choices[2],\n        \"D\": choices[3],\n    }\n\n    prompt = \"Question: \" + doc[\"question\"] + \"\\nChoices:\\n\"\n    for choice, option in option_choices.items():\n        prompt += f\"{choice.upper()}. {option}\\n\"\n    prompt += \"Answer with ONLY the letter (A, B, C, or D):\"\n\n    return prompt\n",
+      "doc_to_target": "def doc_to_target_letter(doc) -> str:\n    \"\"\"\n    Returns the correct answer letter (A, B, C, or D) for generate_until tasks.\n    \"\"\"\n    return doc[\"correct_answer\"]\n",
+      "unsafe_code": false,
+      "description": "",
+      "target_delimiter": " ",
+      "fewshot_delimiter": "\n\n",
+      "num_fewshot": 0,
+      "metric_list": [
+        {
+          "metric": "exact_match",
+          "aggregation": "mean",
+          "higher_is_better": true,
+          "ignore_case": true,
+          "ignore_punctuation": true
+        }
+      ],
+      "output_type": "generate_until",
+      "generation_kwargs": {
+        "until": [],
+        "temperature": 0.0,
+        "max_gen_toks": 50
+      },
+      "repeats": 1,
+      "filter_list": [
+        {
+          "name": "get_answer",
+          "filter": [
+            {
+              "function": "regex",
+              "regex_pattern": "\\b([A-Da-d])\\b",
+              "group_select": -1
+            },
+            {
+              "function": "uppercase"
+            },
+            {
+              "function": "take_first"
+            }
+          ]
+        }
+      ],
+      "should_decontaminate": false,
+      "metadata": {
+        "version": 0.0,
+        "pretrained": "bharatgenai/AyurParam",
+        "dtype": "bfloat16",
+        "max_length": 2048
+      }
+    }
+  },
+  "versions": {
+    "bba_genai": "0.0",
+    "bba_genai_English": 0.0,
+    "bba_genai_Hindi": 0.0
+  },
+  "n-shot": {
+    "bba_genai_English": 0,
+    "bba_genai_Hindi": 0
+  },
+  "higher_is_better": {
+    "bba_genai": {
+      "exact_match": true
+    },
+    "bba_genai_English": {
+      "exact_match": true
+    },
+    "bba_genai_Hindi": {
+      "exact_match": true
+    }
+  },
+  "n-samples": {
+    "bba_genai_English": {
+      "original": 9348,
+      "effective": 9348
+    },
+    "bba_genai_Hindi": {
+      "original": 5615,
+      "effective": 5615
+    }
+  },
+  "config": {
+    "model": "hf",
+    "model_args": "pretrained=bharatgenai/AyurParam,dtype=bfloat16,max_length=2048",
+    "model_num_parameters": 2860673024,
+    "model_dtype": "torch.bfloat16",
+    "model_revision": "main",
+    "model_sha": "722d9f70bc0e83fbaac4df2a740d873950c33ba6",
+    "batch_size": "1",
+    "batch_sizes": [],
+    "device": "mps",
+    "use_cache": null,
+    "limit": null,
+    "bootstrap_iters": 100000,
+    "gen_kwargs": {
+      "max_gen_toks": 50
+    },
+    "random_seed": 0,
+    "numpy_seed": 1234,
+    "torch_seed": 1234,
+    "fewshot_seed": 1234
+  },
+  "git_hash": "babd1e1",
+  "date": 1771100027.023457,
+  "pretty_env_info": "PyTorch version: 2.10.0\nIs debug build: False\nCUDA used to build PyTorch: None\nROCM used to build PyTorch: N/A\n\nOS: macOS 26.2 (arm64)\nGCC version: Could not collect\nClang version: 17.0.0 (clang-1700.6.3.2)\nCMake version: Could not collect\nLibc version: N/A\n\nPython version: 3.14.3 (main, Feb  3 2026, 15:32:20) [Clang 17.0.0 (clang-1700.6.3.2)] (64-bit runtime)\nPython platform: macOS-26.2-arm64-arm-64bit-Mach-O\nIs CUDA available: False\nCUDA runtime version: No CUDA\nCUDA_MODULE_LOADING set to: N/A\nGPU models and configuration: No CUDA\nNvidia driver version: No CUDA\ncuDNN version: No CUDA\nIs XPU available: False\nHIP runtime version: N/A\nMIOpen runtime version: N/A\nIs XNNPACK available: True\nCaching allocator config: N/A\n\nCPU:\nApple M4 Pro\n\nVersions of relevant libraries:\n[pip3] numpy==2.4.2\n[pip3] torch==2.10.0\n[conda] Could not collect",
+  "transformers_version": "4.57.6",
+  "lm_eval_version": "0.4.9.1",
+  "upper_git_hash": null,
+  "tokenizer_pad_token": [
+    "</s>",
+    "3"
+  ],
+  "tokenizer_eos_token": [
+    "</actual_response>",
+    "256005"
+  ],
+  "tokenizer_bos_token": [
+    "<s>",
+    "2"
+  ],
+  "eot_token_id": 256005,
+  "max_length": 2048,
+  "task_hashes": {
+    "bba_genai_English": "1644db212fed1b8c01df6349b443f54a3f1d909920a9fcd973635f3368a92906",
+    "bba_genai_Hindi": "c16e36db76055f76f5ff4af06826b2b194cd8a4390b44ca0928cc16346772f13"
+  },
+  "model_source": "hf",
+  "model_name": "bharatgenai/AyurParam",
+  "model_name_sanitized": "bharatgenai__AyurParam",
+  "system_instruction": null,
+  "system_instruction_sha": null,
+  "fewshot_as_multiturn": false,
+  "chat_template": "{% for message in messages %}{% if message['role'] == 'user' %}<user> {{ message['content'].strip() }} <assistant><actual_response>{% elif message['role'] == 'assistant' %}{{ message['content'].strip() }}{% endif %}{% endfor %}",
+  "chat_template_sha": "9d1b14125b63450d1dcad041659d82c49521efeb2290efbdf770dffe900bbfe8",
+  "start_time": 15884.999307791,
+  "end_time": 19674.133347708,
+  "total_evaluation_time_seconds": "3789.1340399170003"
+}

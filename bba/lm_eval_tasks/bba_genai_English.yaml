@@ -1,0 +1,5 @@
+dataset_name: English
+include: _default_template_genai_yaml
+tag: bba-genai
+task: bba_genai_English
+task_alias: bba_genai_English

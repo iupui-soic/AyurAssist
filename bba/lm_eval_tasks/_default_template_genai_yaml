@@ -1,0 +1,18 @@
+dataset_path: bharatgenai/BhashaBench-Ayur
+dataset_kwargs:
+  token: true
+output_type: generate_until
+test_split: test
+generation_kwargs:
+  until: []
+  temperature: 0
+  max_gen_toks: 4096
+doc_to_text: !function utils_bba.doc_to_text_genai
+doc_to_target: !function utils_bba.doc_to_target_letter
+process_results: !function utils_bba.process_results_genai
+metric_list:
+  - metric: exact_match
+    aggregation: mean
+    higher_is_better: true
+metadata:
+  version: 0.0

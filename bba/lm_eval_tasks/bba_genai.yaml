@@ -1,0 +1,9 @@
+group: bba_genai
+task:
+- bba_genai_English
+- bba_genai_Hindi
+aggregate_metric_list:
+- metric: exact_match
+  weight_by_size: true
+metadata:
+  version: '0.0'

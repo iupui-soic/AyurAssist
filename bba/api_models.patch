@@ -1,0 +1,27 @@
+diff --git a/lm_eval/models/api_models.py b/lm_eval/models/api_models.py
+index 2b2cd01..e5f1464 100644
+--- a/lm_eval/models/api_models.py
++++ b/lm_eval/models/api_models.py
+@@ -255,7 +255,12 @@ class TemplateAPI(TemplateLM):
+                 "non-tokenized chat requests are only supported with batch_size=1"
+             )
+             # list[dict["role":..., "content":...],...]
+-            return json.loads(messages[0].prompt)
++            # Strip the "type" key added by apply_chat_template as some
++            # API providers (e.g. Groq) reject unknown message properties.
++            return [
++                {k: v for k, v in msg.items() if k != "type"}
++                for msg in json.loads(messages[0].prompt)
++            ]
+ 
+         if not self.tokenized_requests:
+             # if messages are tokenized:
+@@ -501,7 +506,7 @@ class TemplateAPI(TemplateLM):
+             return answers
+         # If the retries also fail
+         except BaseException as e:
+-            eval_logger.error(f"Exception:{repr(e)}, {outputs}, retrying.")
++            eval_logger.error(f"Exception:{repr(e)}, retrying.")
+             raise e
+         finally:
+             if acquired:

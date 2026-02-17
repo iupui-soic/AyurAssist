@@ -1,236 +1,124 @@
-# AyurAssist
+# AyurAssist Experiments
 
-AI-powered clinical decision support that bridges modern medical terminology (SNOMED CT, UMLS) with traditional Ayurvedic knowledge using the WHO International Terminologies for Ayurveda (ITA).
+This branch contains experiments evaluating LLMs on Ayurvedic medical knowledge. Two benchmarks are included:
 
-## Architecture
+1. **BhashaBench-Ayur (BBA)** -- Multilingual Ayurvedic MCQ benchmark (English + Hindi)
+2. **WHO-ITA Translation** -- English-to-Sanskrit IAST term translation using WHO International Terminologies for Ayurveda
 
-AyurAssist runs on [Modal](https://modal.com) as a two-tier serverless system that separates GPU-heavy LLM inference from lightweight CPU orchestration.
+---
 
-```
-Browser (static site on GitHub Pages)
-  |
-  |─ GET /warmup ──> [CPU Container]  ─── warmup.remote() ──> [GPU Container]
-  |                  (fires on page load,                      (starts loading
-  |                   returns immediately)                      AyurParam model)
-  |
-  |  ... user types for 20-30s ...
-  |
-  |─ POST / ──────> [CPU Container: ASGI + NER + CSV + UMLS]
-                      |
-                      ├─ 1. NER extraction (scispacy en_core_sci_lg, CPU)
-                      ├─ 2. Entity resolution: exact CSV match, then UMLS ICD-10
-                      ├─ 3. CSV lookup (226 WHO ITA conditions)
-                      ├─ 4. generate.remote() ──> [GPU Container: transformers]
-                      |                            AyurParam generates treatment
-                      └─ 5. Assemble response with clinical codes + treatment
-```
+## 1. BhashaBench-Ayur (BBA)
 
-### CPU Container (ASGI + orchestration)
+### Overview
 
-Handles everything that doesn't need a GPU:
+BBA is a multiple-choice question benchmark for Ayurvedic medical knowledge covering topics like Kayachikitsa, Padartha Vigyana, Dravyaguna, Rachana Sharira, and more. Questions span Easy, Medium, and Hard difficulty levels.
 
-- **Biomedical NER** -- [scispacy](https://allenai.github.io/scispacy/) `en_core_sci_lg` runs on CPU. Extracts biomedical entities from patient narratives. All entities are labeled `ENTITY` (generic), so keyword selection uses a two-stage resolution strategy (see [Entity Resolution](#entity-resolution) below).
-- **UMLS mapping** -- Two-step API lookup: search for keyword to get a UMLS CUI, then query the CUI's atoms endpoint filtered by `SNOMEDCT_US` to get the actual SNOMED code. When used for entity resolution, the search is restricted to `ICD10CM` (ICD-10 Clinical Modification) to ensure only diseases and clinical conditions are matched.
-- **WHO ITA CSV lookup** -- `ayurveda_snomed_mapping.csv` contains 226 Ayurvedic conditions from the WHO International Terminologies for Ayurveda, mapped to SNOMED codes. Lookup by SNOMED code first, then fuzzy text match on condition name.
-- **FastAPI ASGI app** -- Serves the `/` (analyze) and `/warmup` endpoints. Uses FastAPI's `lifespan` to load NER and CSV once at startup.
+- **English**: 9,348 questions
+- **Hindi**: 5,615 questions
+- **Total**: 14,963 questions
+- **Source**: `bharatgenai/BhashaBench-Ayur` on HuggingFace
 
-Stays warm for 5 minutes after the last request (`scaledown_window=300`).
+### Results
 
-### GPU Container (transformers)
+| Model | Params | BBA English | BBA Hindi | BBA Overall |
+|-------|--------|-------------|-----------|-------------|
+| **Qwen3-32B** | **32B** | **57.35** | **49.07** | **54.24** |
+| GPT-OSS-120B | 120B | 55.16 | 47.14 | 52.15 |
+| AyurParam-2.9B-Instruct | 2.9B | 41.12 | 38.04 | 39.97 |
+| gemma-2-27B-it | 27B | 40.45 | 33.89 | 37.99 |
+| Pangea-7B | 7B | 40.69 | 31.93 | 37.41 |
+| gpt-oss-20B | 20B | 38.30 | 33.09 | 36.34 |
+| Indic-gemma-7B-Navarasa-2.0 | 7B | 37.12 | 31.83 | 35.13 |
 
-Runs only the AyurParam LLM (`bharatgenai/AyurParam`) via HuggingFace `transformers` with `device_map="auto"` for native generation (AyurParam's custom tokenizer is not compatible with vLLM).
+### Key Findings
 
-**Important:** AyurParam uses a custom 256k-vocabulary tokenizer that requires `trust_remote_code=True` for **both** the tokenizer and model. Loading the tokenizer with `trust_remote_code=False` causes it to fall back to a generic tokenizer, producing incorrect token IDs and hallucinated outputs. The `use_fast=False` flag is also required since the model only ships a slow tokenizer class.
+- **Qwen3-32B is the overall best performer** at 54.24%, beating GPT-OSS-120B (52.15%) despite having 4x fewer parameters.
+- All models perform worse on Hindi than English, with gaps ranging from 3-7 percentage points.
 
-Receives a prompt enriched with SNOMED codes and WHO ITA context, returns text containing:
+### Evaluation Method
 
-- Condition name (Sanskrit and English)
-- Dosha involvement
-- Nidana (causes), Rupa (symptoms)
-- Ottamooli (single remedies) with dosage and preparation
-- Classical formulations with textual references
-- Pathya (dietary advice)
-- Vihara (lifestyle) and Yoga recommendations
-- Warning signs and disclaimer
+- **Small & Medium models**: Loglikelihood scoring (standard multiple-choice evaluation via lm-eval-harness)
+- **Large models**: Generate-until with chat completions API (Groq), temperature=0, regex-based answer extraction (A-D)
 
-Scales to zero when idle. Shuts down after 1 minute of inactivity (`scaledown_window=60`).
-
-### Warmup Strategy
-
-Cold-starting the GPU container takes 30-60 seconds (model loading). To hide this latency:
-
-1. The frontend fires `GET /warmup` on page load (fire-and-forget).
-2. The CPU container starts, loads NER model, and simultaneously kicks off `LLMEngine.warmup.remote()` in a background asyncio task.
-3. By the time the user finishes typing (20-30 seconds), the GPU container is typically already warm.
-
-### Entity Resolution
-
-scispacy's `en_core_sci_lg` labels all entities as generic `ENTITY` (no Disease/Symptom distinction), so free-text input like *"I feel like I've been hit by a bus, my teeth were chattering, I had soft-serve from the dairy"* produces entities like `bus`, `teeth`, `dairy` alongside real clinical terms. The keyword selection strategy filters these out:
-
-1. **Exact CSV match** -- Each entity is checked against the WHO ITA term lookup (exact, case-insensitive). If a match is found, it is used immediately. This is fast and guarantees an Ayurvedic disease term.
-2. **UMLS ICD-10 lookup** -- If no CSV match, all entities are queried against UMLS in parallel, restricted to `ICD10CM` (ICD-10 Clinical Modification). ICD-10 only contains diseases and clinical conditions, so non-medical terms like `bus` or `dairy` are filtered out. Results are ranked: entities whose SNOMED code exists in the CSV are preferred, then those with any SNOMED code, then longest entity text (more specific medical term).
-3. **Fuzzy CSV fallback** -- The selected keyword is fuzzy-matched against CSV terms (threshold 0.6) to find the closest Ayurvedic condition.
-
-### Data Flow
+### Files
 
 ```
-Patient narrative
-    -> NER: scispacy extracts biomedical entities
-    -> Entity resolution:
-         1. exact CSV match on each entity
-         2. UMLS ICD-10 lookup (diseases/conditions only), ranked by CSV match
-    -> CSV:  SNOMED code -> WHO ITA match (Sanskrit name, ITA ID, description)
-    -> LLM:  6 focused questions sent to AyurParam -> treatment responses
-    -> Response: assembled treatment info with clinical codes
+bba/
+  analyze_accuracy.py          # Analysis script with breakdowns by level/topic/domain
+  bba_english.csv              # English question dataset
+  bba_english.json             # English dataset (JSON)
+  bba_hindi.csv                # Hindi question dataset
+  bba_hindi.json               # Hindi dataset (JSON)
+  api_models.patch             # Patch for lm-eval api_models.py (Groq compatibility)
+  lm_eval_tasks/               # lm-eval-harness task configurations
+    _default_template_genai_yaml
+    bba_genai.yaml
+    bba_genai_English.yaml
+    bba_genai_Hindi.yaml
+    utils_bba.py
+  results/
+    bba_results_table.tex      # LaTeX results table
+    qwen3-32b/                 # Per-sample results and summary JSON
+    gpt-oss-120b/
+    ayurparam-2.9b/
 ```
 
-## Project Structure
+---
+
+## 2. WHO-ITA Sanskrit Translation
+
+### Overview
+
+This experiment evaluates LLMs on translating English Ayurvedic terms to Sanskrit in IAST (International Alphabet of Sanskrit Transliteration). The ground truth comes from the WHO International Standard Terminologies on Ayurveda (WHO-ITA) 2022 document.
+
+- **Total terms**: 3,550 Ayurvedic terms
+- **Source**: WHO-ITA_2022.pdf (pages 19-491)
+- **Task**: Given an English Ayurvedic term, produce the correct Sanskrit IAST equivalent
+
+### Models Evaluated
+
+| Model | Parameters | Provider |
+|-------|-----------|----------|
+| Qwen3-32B | 32B | Groq API |
+| AyurParam-2.9B | 2.9B | Modal (T4 GPU) |
+| Claude Sonnet 4.5 | -- | Anthropic API |
+
+### Evaluation Method
+
+- Models receive batches of English terms and must return Sanskrit IAST translations as structured JSON
+- **Matching criteria**: Flexible matching with Unicode NFKD normalization (diacritics removed), lowercased. A prediction matches if any predicted sub-term matches any ground truth sub-term via exact or substring match. This accommodates multiple valid Sanskrit synonyms in the ground truth.
+
+### Results
+
+| Model | Params | Matches | Accuracy |
+|-------|--------|---------|----------|
+| **Claude Sonnet 4.5** | **--** | **1,237 / 3,550** | **34.84%** |
+| Qwen3-32B | 32B | 250 / 3,550 | 7.04% |
+| AyurParam-2.9B | 2.9B | 67 / 3,550 | 1.89% |
+
+### Key Findings
+
+- **Claude Sonnet 4.5 is the clear winner** at 34.84% accuracy -- nearly 5x better than Qwen3-32B and 18x better than AyurParam.
+- **AyurParam underperforms** despite being Ayurveda-specialized, likely due to limited IAST transliteration in training data and difficulty with structured JSON output format. It often produced verbose explanations or Devanagari script instead of IAST.
+- **Sanskrit IAST translation is a hard task** for all models. Even with lenient substring matching, the best model only achieves ~35% accuracy, highlighting the challenge of specialized medical terminology translation.
+- Scale and training data diversity appear to matter more than domain specialization for this translation task.
+
+### Files
 
 ```
-AyurAssist/
-├── main.py                        # Modal backend (GPU + CPU tiers)
-├── config.py                      # All tuneable constants (no secrets)
-├── ayurveda_snomed_mapping.csv    # 226 WHO ITA conditions -> SNOMED
-├── docs/                          # Frontend (GitHub Pages)
-│   ├── index.html
-│   ├── style.css
-│   └── app.js
-└── README.md
+who-ita/
+  WHO-ITA_2022.pdf                      # Source PDF (WHO standard terminologies)
+  extract_ita_terms.py                  # PDF extraction script (pdfplumber)
+  ita_terms.csv                         # Extracted terms (3,550 rows)
+  ita_terms_ascii.csv                   # ASCII-normalized version
+  test_qwen_translation.py             # Qwen evaluation script
+  test_ayurparam_translation.py         # AyurParam evaluation script
+  test_claude_translation.py            # Claude evaluation script
+  translation_results.csv               # Qwen results (per-term)
+  translation_results_ayurparam.csv     # AyurParam results (per-term)
+  translation_results_claude.csv        # Claude results (per-term)
+  raw_model_responses.jsonl             # Qwen raw API responses
+  raw_model_responses_ayurparam.jsonl   # AyurParam raw API responses
+  raw_model_responses_claude.jsonl      # Claude raw API responses
+  requirements.txt                      # Python dependencies
 ```
-
-## Configuration
-
-All tuneable constants are in `config.py`. Edit this file to change model IDs, timeouts, GPU types, etc.
-
-### Modal Secrets
-
-Secrets are **not** stored in code. They are managed through [Modal's secret manager](https://modal.com/docs/guide/secrets).
-You need to create two secrets in your Modal dashboard:
-
-| Modal secret name      | Required env vars | How to get it |
-|------------------------|-------------------|---------------|
-| `huggingface-secret`   | `HF_TOKEN`        | [HuggingFace tokens](https://huggingface.co/settings/tokens) |
-| `my-umls-secret`       | `UMLS_API_KEY`    | [UMLS license](https://uts.nlm.nih.gov/uts/signup-login) |
-
-Create them with the Modal CLI:
-
-```bash
-modal secret create huggingface-secret HF_TOKEN=hf_xxxxxxxxxxxxx
-modal secret create my-umls-secret UMLS_API_KEY=xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
-```
-
-The secret **names** referenced in `config.py` (`MODAL_SECRET_HUGGINGFACE`, `MODAL_SECRET_UMLS`) must match what you created above. If you use different names, update `config.py` accordingly.
-
-### Frontend
-
-Update `API_BASE` in `docs/app.js` to match your Modal deployment URL:
-
-```javascript
-const API_BASE = 'https://<your-modal-username>--ayurparam-service-fastapi-app.modal.run';
-```
-
-## Deployment
-
-### Prerequisites
-
-- Python 3.11+
-- [Modal CLI](https://modal.com/docs/guide/getting-started) installed and authenticated
-- Modal secrets created (see above)
-- A HuggingFace account with access to `bharatgenai/AyurParam`
-
-### Deploy to Modal
-
-```bash
-modal deploy main.py
-```
-
-This builds two container images (CPU and GPU), deploys the ASGI web endpoint, and outputs your deployment URL.
-
-### Local development
-
-```bash
-modal serve main.py
-```
-
-This runs the app locally with hot-reload. The terminal will show the temporary URL.
-
-## API
-
-### `GET /warmup`
-
-Triggers GPU container startup in the background. Returns immediately.
-
-**Response:**
-```json
-{"status": "warming"}
-```
-
-### `POST /`
-
-Analyzes a patient narrative and returns Ayurvedic treatment recommendations.
-
-**Request:**
-```json
-{"text": "patient complains of severe headache and nausea"}
-```
-
-**Response:**
-```json
-{
-  "input_text": "patient complains of severe headache and nausea",
-  "clinical_entities": [
-    {"word": "patient complains", "score": 1.0, "entity_group": "ENTITY"},
-    {"word": "severe", "score": 1.0, "entity_group": "ENTITY"},
-    {"word": "headache", "score": 1.0, "entity_group": "ENTITY"},
-    {"word": "nausea", "score": 1.0, "entity_group": "ENTITY"}
-  ],
-  "umls_cui": "C0018681",
-  "snomed_code": "25064002",
-  "csv_match": {
-    "ita_id": "ITA-5.32.1",
-    "ayurveda_term": "Headache",
-    "sanskrit_iast": "shirorogah",
-    "sanskrit": "...",
-    "description": "..."
-  },
-  "results": [{
-    "ayurveda_term": "Headache",
-    "snomed_code": "25064002",
-    "treatment_info": {
-      "condition_name": "Shiroroga",
-      "sanskrit_name": "shirorogah",
-      "brief_description": "...",
-      "dosha_involvement": "...",
-      "nidana_causes": ["..."],
-      "rupa_symptoms": ["..."],
-      "ottamooli_single_remedies": [{"medicine_name": "...", "dosage": "..."}],
-      "classical_formulations": [{"name": "...", "reference_text": "..."}],
-      "pathya_dietary_advice": {"foods_to_favor": ["..."], "foods_to_avoid": ["..."]},
-      "vihara_lifestyle": ["..."],
-      "yoga_exercises": ["..."],
-      "warning_signs": ["..."],
-      "disclaimer": "..."
-    }
-  }]
-}
-```
-
-## Cost
-
-| Component | When running | When idle |
-|-----------|-------------|-----------|
-| GPU container (T4) | ~$0.76/hr | $0 (scales to zero) |
-| CPU container | ~$0.04/hr | $0 (scales to zero after 5 min) |
-| Modal volume | ~$0.07/GB/mo | ~$0.07/GB/mo |
-
-With the warmup strategy, the GPU is only active during user sessions, not 24/7.
-
-## Key Dependencies
-
-| Package | Container | Purpose |
-|---------|-----------|---------|
-| `scispacy` + `en_core_sci_lg` | CPU | Biomedical NER entity extraction |
-| `transformers` | GPU | AyurParam LLM inference (native generation) |
-| `modal` | both | Serverless GPU/CPU containers |
-| `fastapi` | CPU | ASGI web framework |
-| `requests` | CPU | UMLS API calls |

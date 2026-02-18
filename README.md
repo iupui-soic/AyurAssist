@@ -2,6 +2,8 @@
 
 AI-powered clinical decision support that bridges modern medical terminology (SNOMED CT, UMLS) with traditional Ayurvedic knowledge using the WHO International Terminologies for Ayurveda (ITA).
 
+![AyurAssist Screenshot](docs/images/screenshot.png)
+
 ## Architecture
 
 AyurAssist runs on [Modal](https://modal.com) as a CPU-only serverless system. A terminology bridge (NER + UMLS + WHO-ITA) provides Ayurvedic vocabulary context to Qwen3-32B (via Groq API), which performs clinical reasoning across 13 structured assessment categories.
@@ -209,3 +211,15 @@ Validation experiments are on the [`experiments`](../../tree/experiments) branch
 - **[BhashaBench-Ayur (BBA)](../../tree/experiments/bba)** -- Ayurvedic medical knowledge benchmark with 9,348 English and 5,615 Hindi multiple-choice questions. AyurParam-2.9B scores 40.0% overall (best in the <3B class), while Qwen3-32B achieves 54.2% (best overall across all model sizes).
 - **[Ablation Study](../../tree/experiments/ablation)** -- Compares three pipeline configurations (direct LLM, full pipeline with ITA bridge, bridge-only) across 80 gold-standard clinical vignettes. The full pipeline achieves 80% diagnosis accuracy vs 75% for direct LLM.
 - **[Inter-Rater Reliability](../../tree/experiments/irr)** -- IRR analysis of four clinicians (2 MDs, 2 Ayurveda practitioners) rating 80 patient narratives, with LLM-augmented annotation for missing labels.
+
+## Citation
+
+If you use AyurAssist in your research, please cite:
+
+```bibtex
+@inproceedings{kuruvikkattil2026ayurassist,
+  title={AyurAssist: Bridging Ayurvedic and Biomedical Clinical Knowledge Through Terminology-Grounded LLM Reasoning},
+  author={Kuruvikkattil, Aravind V. and Pradeep, Anagha and Kumar, Veena S. and Purkayastha, Saptarshi},
+  year={2026}
+}
+```

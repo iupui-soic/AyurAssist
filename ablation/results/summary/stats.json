@@ -1,0 +1,126 @@
+{
+  "mcnemar": {
+    "full_vs_direct_diagnosis": {
+      "b": 17,
+      "c": 13,
+      "chi2": 0.5333333333333333,
+      "p_value": 0.46520881845214174
+    },
+    "full_vs_direct_treatment": {
+      "b": 0,
+      "c": 0,
+      "chi2": 0.0,
+      "p_value": 1.0
+    }
+  },
+  "bootstrap_ci": {
+    "direct_llm": {
+      "diagnosis": {
+        "accuracy": {
+          "point_estimate": 0.75,
+          "ci_lower": 0.65,
+          "ci_upper": 0.8375
+        },
+        "rouge_l": {
+          "point_estimate": 0.10658121001814921,
+          "ci_lower": 0.08846015356080927,
+          "ci_upper": 0.12514210837885006
+        },
+        "token_f1": {
+          "point_estimate": 0.13010667454862002,
+          "ci_lower": 0.10704799021913647,
+          "ci_upper": 0.1544433752747429
+        }
+      },
+      "treatment": {
+        "accuracy": {
+          "point_estimate": 1.0,
+          "ci_lower": 1.0,
+          "ci_upper": 1.0
+        },
+        "rouge_l": {
+          "point_estimate": 0.03266403853354593,
+          "ci_lower": 0.03012065858779491,
+          "ci_upper": 0.035214534082665776
+        },
+        "token_f1": {
+          "point_estimate": 0.08270282940588859,
+          "ci_lower": 0.07645209606753683,
+          "ci_upper": 0.08892792595698679
+        }
+      }
+    },
+    "full_pipeline": {
+      "diagnosis": {
+        "accuracy": {
+          "point_estimate": 0.8,
+          "ci_lower": 0.7125,
+          "ci_upper": 0.8875
+        },
+        "rouge_l": {
+          "point_estimate": 0.06340826047639567,
+          "ci_lower": 0.045203057270472996,
+          "ci_upper": 0.08336045640120215
+        },
+        "token_f1": {
+          "point_estimate": 0.08780640104152251,
+          "ci_lower": 0.06483466321683276,
+          "ci_upper": 0.11309597744890298
+        }
+      },
+      "treatment": {
+        "accuracy": {
+          "point_estimate": 1.0,
+          "ci_lower": 1.0,
+          "ci_upper": 1.0
+        },
+        "rouge_l": {
+          "point_estimate": 0.06156154531647129,
+          "ci_lower": 0.053070575685554455,
+          "ci_upper": 0.07135396381114828
+        },
+        "token_f1": {
+          "point_estimate": 0.1251453903403526,
+          "ci_lower": 0.11175816357619339,
+          "ci_upper": 0.14051572182852026
+        }
+      }
+    },
+    "bridge_only": {
+      "diagnosis": {
+        "accuracy": {
+          "point_estimate": 0.05,
+          "ci_lower": 0.0125,
+          "ci_upper": 0.1
+        },
+        "rouge_l": {
+          "point_estimate": 0.003125,
+          "ci_lower": 0.0,
+          "ci_upper": 0.009375
+        },
+        "token_f1": {
+          "point_estimate": 0.003125,
+          "ci_lower": 0.0,
+          "ci_upper": 0.009375
+        }
+      },
+      "treatment": {
+        "accuracy": {
+          "point_estimate": 0.0,
+          "ci_lower": 0.0,
+          "ci_upper": 0.0
+        },
+        "rouge_l": {
+          "point_estimate": 0.0,
+          "ci_lower": 0.0,
+          "ci_upper": 0.0
+        },
+        "token_f1": {
+          "point_estimate": 0.0,
+          "ci_lower": 0.0,
+          "ci_upper": 0.0
+        }
+      }
+    }
+  }
+}

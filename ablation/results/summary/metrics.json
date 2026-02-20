@@ -4,7 +4,7 @@
       "n_scored": 80,
       "accuracy": 0.75,
       "n_correct": 60,
-      "rouge_l": 0.10432989959695556,
+      "rouge_l": 0.10827725666716732,
       "token_f1": 0.13010667454862002,
       "term_level": {
         "tp": 83,
@@ -25,18 +25,18 @@
       "n_scored": 80,
       "accuracy": 1.0,
       "n_correct": 80,
-      "rouge_l": 0.0336334129180942,
+      "rouge_l": 0.032812885358422625,
       "token_f1": 0.08270282940588859,
       "term_level": {
-        "tp": 386,
-        "fp": 3812,
-        "fn": 385,
-        "precision": 0.09194854692710815,
-        "recall": 0.5006485084306096,
-        "f1": 0.15536325216341315,
+        "tp": 388,
+        "fp": 3810,
+        "fn": 383,
+        "precision": 0.09242496426869938,
+        "recall": 0.503242542153048,
+        "f1": 0.15616824310726504,
         "tier_breakdown": {
-          "no_match": 3812,
-          "word_overlap": 386
+          "no_match": 3810,
+          "word_overlap": 388
         }
       }
     }
@@ -46,7 +46,7 @@
       "n_scored": 80,
       "accuracy": 0.8,
       "n_correct": 64,
-      "rouge_l": 0.06452439374395749,
+      "rouge_l": 0.06534904387245014,
       "token_f1": 0.08780640104152251,
       "term_level": {
         "tp": 109,
@@ -67,57 +67,20 @@
       "n_scored": 80,
       "accuracy": 1.0,
       "n_correct": 80,
-      "rouge_l": 0.060256220958774906,
+      "rouge_l": 0.06274664357218013,
       "token_f1": 0.1251453903403526,
       "term_level": {
-        "tp": 351,
-        "fp": 2079,
-        "fn": 420,
-        "precision": 0.14444444444444443,
-        "recall": 0.45525291828793774,
-        "f1": 0.2193064667291471,
+        "tp": 359,
+        "fp": 2071,
+        "fn": 412,
+        "precision": 0.14773662551440328,
+        "recall": 0.4656290531776913,
+        "f1": 0.22430490471727588,
         "tier_breakdown": {
-          "no_match": 2079,
-          "word_overlap": 348,
+          "no_match": 2071,
+          "word_overlap": 356,
           "fuzzy_match": 3
         }
-      }
-    }
-  },
-  "bridge_only": {
-    "diagnosis": {
-      "n_scored": 80,
-      "accuracy": 0.05,
-      "n_correct": 4,
-      "rouge_l": 0.003125,
-      "token_f1": 0.003125,
-      "term_level": {
-        "tp": 4,
-        "fp": 178,
-        "fn": 311,
-        "precision": 0.02197802197802198,
-        "recall": 0.012698412698412698,
-        "f1": 0.01609657947686117,
-        "tier_breakdown": {
-          "no_match": 178,
-          "ita_match": 4
-        }
-      }
-    },
-    "treatment": {
-      "n_scored": 80,
-      "accuracy": 0.0,
-      "n_correct": 0,
-      "rouge_l": 0.0,
-      "token_f1": 0.0,
-      "term_level": {
-        "tp": 0,
-        "fp": 0,
-        "fn": 771,
-        "precision": 0.0,
-        "recall": 0.0,
-        "f1": 0.0,
-        "tier_breakdown": {}
       }
     }
   }

@@ -26,7 +26,7 @@ from evaluation.metrics import compute_all_metrics
 from evaluation.report import generate_all_reports
 from terminology_bridge import _get_ita_vocab
 from pipelines.base import PipelineResult
-from configs import RAW_RESPONSES_DIR
+from configs import RAW_RESPONSES_DIR, SUMMARY_DIR
 
 
 # Order matters: baseline first, then additions
@@ -76,12 +76,21 @@ def _load_checkpoint(config_name):
     return results
 
 
-def _evaluate_config(config_name, pipeline_results, vignettes, ita_vocab):
-    """Evaluate a config's pipeline results against gold standard."""
+def _evaluate_config(config_name, pipeline_results, vignettes, ita_vocab,
+                     exclude_indices=None, threshold=None):
+    """Evaluate a config's pipeline results against gold standard.
+
+    Args:
+        exclude_indices: set of vignette indices to skip (for holdout analysis)
+        threshold: fuzzy match threshold override (for threshold sweep)
+    """
     vignette_match_results = []
     config_result_tuples = []
 
     for result in pipeline_results:
+        if exclude_indices and result.vignette_index in exclude_indices:
+            continue
+
         v = vignettes[result.vignette_index]
         gold_diag = get_gold_terms(v, "diagnosis")
         gold_treat = get_gold_terms(v, "treatment")
@@ -92,6 +101,7 @@ def _evaluate_config(config_name, pipeline_results, vignettes, ita_vocab):
             gold_diag,
             gold_treat,
             ita_vocab,
+            threshold=threshold,
         )
         vignette_match_results.append(match_result)
         config_result_tuples.append((result.vignette_index, match_result, result))
@@ -119,6 +129,21 @@ def main():
         "--reeval",
         action="store_true",
         help="Re-evaluate from cached checkpoints (no API calls)",
+    )
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Compute McNemar tests and bootstrap CIs (use with --reeval)",
+    )
+    parser.add_argument(
+        "--holdout-fewshot",
+        action="store_true",
+        help="Re-evaluate excluding few-shot vignettes (use with --reeval)",
+    )
+    parser.add_argument(
+        "--threshold-sweep",
+        action="store_true",
+        help="Sweep fuzzy thresholds [0.70..0.90] (use with --reeval)",
     )
     args = parser.parse_args()
 
@@ -191,6 +216,124 @@ def main():
                 f"{t['accuracy']:>7.3f} {t['rouge_l']:>10.3f} {t['token_f1']:>10.3f}"
             )
         print()
+
+    # ------------------------------------------------------------------
+    # --stats: McNemar + bootstrap CIs (W2+W3)
+    # ------------------------------------------------------------------
+    if args.stats and all_config_results:
+        from evaluation.stats import compute_all_stats
+
+        print("\n" + "=" * 70)
+        print("  STATISTICAL SIGNIFICANCE (W2+W3)")
+        print("=" * 70)
+
+        stats = compute_all_stats(all_config_results)
+
+        # Print McNemar results
+        for key, result in stats["mcnemar"].items():
+            print(f"\n  McNemar {key}:")
+            print(f"    b={result['b']}, c={result['c']}, "
+                  f"chi2={result['chi2']:.3f}, p={result['p_value']:.4f}")
+
+        # Print bootstrap CIs
+        print("\n  Bootstrap 95% CIs:")
+        print(f"  {'Config':<20} {'Field':<12} {'Metric':<12} {'Point':>7} {'CI Lower':>9} {'CI Upper':>9}")
+        print(f"  {'-'*20} {'-'*12} {'-'*12} {'-'*7} {'-'*9} {'-'*9}")
+        for config_name, fields in stats["bootstrap_ci"].items():
+            for field, metrics in fields.items():
+                for metric_name, ci in metrics.items():
+                    print(
+                        f"  {config_name:<20} {field:<12} {metric_name:<12} "
+                        f"{ci['point_estimate']:>7.3f} "
+                        f"{ci['ci_lower']:>9.3f} {ci['ci_upper']:>9.3f}"
+                    )
+
+        # Save to JSON
+        os.makedirs(SUMMARY_DIR, exist_ok=True)
+        stats_path = os.path.join(SUMMARY_DIR, "stats.json")
+        with open(stats_path, "w", encoding="utf-8") as f:
+            json.dump(stats, f, indent=2)
+        print(f"\n  Stats saved to {stats_path}")
+
+    # ------------------------------------------------------------------
+    # --holdout-fewshot: Exclude few-shot vignettes (W6)
+    # ------------------------------------------------------------------
+    if args.holdout_fewshot and args.reeval:
+        FEWSHOT_INDICES = {30, 45, 60}  # 0-indexed vignettes used for few-shot
+
+        print("\n" + "=" * 70)
+        print("  FEW-SHOT HOLDOUT ANALYSIS (W6)")
+        print("=" * 70)
+        print(f"  Excluding vignette indices: {sorted(FEWSHOT_INDICES)}")
+
+        print(f"\n  {'Config':<20} {'Field':<12} {'Full Acc':>9} {'Holdout Acc':>12} {'Delta':>7}")
+        print(f"  {'-'*20} {'-'*12} {'-'*9} {'-'*12} {'-'*7}")
+
+        for config_key in args.configs:
+            config_name = CONFIG_MAP[config_key]
+            pipeline_results = _load_checkpoint(config_name)
+            if not pipeline_results:
+                continue
+
+            holdout_metrics, _ = _evaluate_config(
+                config_name, pipeline_results, vignettes, ita_vocab,
+                exclude_indices=FEWSHOT_INDICES,
+            )
+
+            for field in ["diagnosis", "treatment"]:
+                full_acc = all_config_metrics.get(config_name, {}).get(field, {}).get("accuracy", 0)
+                hold_acc = holdout_metrics[field]["accuracy"]
+                delta = hold_acc - full_acc
+                print(
+                    f"  {config_name:<20} {field:<12} "
+                    f"{full_acc:>9.3f} {hold_acc:>12.3f} {delta:>+7.3f}"
+                )
+
+    # ------------------------------------------------------------------
+    # --threshold-sweep: Fuzzy threshold sensitivity (W8)
+    # ------------------------------------------------------------------
+    if args.threshold_sweep and args.reeval:
+        THRESHOLDS = [0.70, 0.75, 0.80, 0.85, 0.90]
+
+        print("\n" + "=" * 70)
+        print("  THRESHOLD SENSITIVITY SWEEP (W8)")
+        print("=" * 70)
+
+        header = f"  {'Config':<20} {'Field':<12}"
+        for t in THRESHOLDS:
+            header += f" {'t='+str(t):>8}"
+        print(header)
+        print(f"  {'-'*20} {'-'*12}" + f" {'-'*8}" * len(THRESHOLDS))
+
+        sweep_results = {}
+        for config_key in args.configs:
+            config_name = CONFIG_MAP[config_key]
+            pipeline_results = _load_checkpoint(config_name)
+            if not pipeline_results:
+                continue
+
+            sweep_results[config_name] = {}
+            for field in ["diagnosis", "treatment"]:
+                accs = []
+                for threshold in THRESHOLDS:
+                    m, _ = _evaluate_config(
+                        config_name, pipeline_results, vignettes, ita_vocab,
+                        threshold=threshold,
+                    )
+                    accs.append(m[field]["accuracy"])
+                sweep_results[config_name][field] = dict(zip(THRESHOLDS, accs))
+
+                row = f"  {config_name:<20} {field:<12}"
+                for acc in accs:
+                    row += f" {acc:>8.3f}"
+                print(row)
+
+        # Save sweep results
+        os.makedirs(SUMMARY_DIR, exist_ok=True)
+        sweep_path = os.path.join(SUMMARY_DIR, "threshold_sweep.json")
+        with open(sweep_path, "w", encoding="utf-8") as f:
+            json.dump(sweep_results, f, indent=2)
+        print(f"\n  Sweep results saved to {sweep_path}")
 
     return 0
 

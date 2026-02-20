@@ -82,13 +82,20 @@ def _resolve_ita_ids(terms, ita_vocab):
     return cache
 
 
-def match_term_to_term(pred_term, gold_term, pred_ita_id, gold_ita_id):
+def match_term_to_term(pred_term, gold_term, pred_ita_id, gold_ita_id,
+                       threshold=None):
     """Check if a single predicted term matches a single gold term.
 
     Uses pre-resolved ITA IDs to avoid redundant vocabulary scans.
 
+    Args:
+        threshold: fuzzy match threshold (defaults to FUZZY_THRESHOLD)
+
     Returns: (matched: bool, level: str)
     """
+    if threshold is None:
+        threshold = FUZZY_THRESHOLD
+
     # Tier 1: ITA ID match
     if pred_ita_id and gold_ita_id and pred_ita_id == gold_ita_id:
         return True, "ita_match"
@@ -104,17 +111,21 @@ def match_term_to_term(pred_term, gold_term, pred_ita_id, gold_ita_id):
     gold_clean = gold_term.lower().strip()
     if len(pred_clean) >= 3 and len(gold_clean) >= 3:
         sim = normalized_similarity(pred_clean, gold_clean)
-        if sim >= FUZZY_THRESHOLD:
+        if sim >= threshold:
             return True, "fuzzy_match"
 
     return False, "no_match"
 
 
-def match_field_terms(predicted_terms, gold_terms, ita_vocab=None):
+def match_field_terms(predicted_terms, gold_terms, ita_vocab=None,
+                      threshold=None):
     """Term-level greedy matching for one field (diagnosis or treatment).
 
     For each predicted term, find the best-matching gold term (preferring
     higher tiers). Matched gold terms are consumed and cannot be reused.
+
+    Args:
+        threshold: fuzzy match threshold (passed through to match_term_to_term)
 
     Returns dict with:
       tp, fp, fn: term-level counts
@@ -155,7 +166,8 @@ def match_field_terms(predicted_terms, gold_terms, ita_vocab=None):
 
         for gold in remaining_gold:
             gold_ita_id = ita_cache.get(gold)
-            matched, level = match_term_to_term(pred, gold, pred_ita_id, gold_ita_id)
+            matched, level = match_term_to_term(pred, gold, pred_ita_id, gold_ita_id,
+                                                   threshold=threshold)
             if matched:
                 priority = level_priority.get(level, 999)
                 if priority < best_priority:
@@ -193,11 +205,14 @@ def match_field_terms(predicted_terms, gold_terms, ita_vocab=None):
 
 def compute_vignette_match(predicted_diagnosis, predicted_treatment,
                            gold_diagnosis_terms, gold_treatment_terms,
-                           ita_vocab=None):
+                           ita_vocab=None, threshold=None):
     """Evaluate a single vignette's predictions against gold standard.
 
     Does term-level matching: each predicted term matched against individual
     gold terms via tiered matching (ITA > word overlap > fuzzy).
+
+    Args:
+        threshold: fuzzy match threshold (passed through to match_field_terms)
 
     Returns dict with diagnosis and treatment match results, each containing
     tp/fp/fn counts and tier breakdown.
@@ -208,8 +223,10 @@ def compute_vignette_match(predicted_diagnosis, predicted_treatment,
     pred_diag_terms = split_terms(predicted_diagnosis) if predicted_diagnosis else []
     pred_treat_terms = split_terms(predicted_treatment) if predicted_treatment else []
 
-    diag_result = match_field_terms(pred_diag_terms, gold_diagnosis_terms, ita_vocab)
-    treat_result = match_field_terms(pred_treat_terms, gold_treatment_terms, ita_vocab)
+    diag_result = match_field_terms(pred_diag_terms, gold_diagnosis_terms, ita_vocab,
+                                    threshold=threshold)
+    treat_result = match_field_terms(pred_treat_terms, gold_treatment_terms, ita_vocab,
+                                     threshold=threshold)
 
     # Text-level metrics (ROUGE-L and token F1)
     gold_diag_text = "; ".join(gold_diagnosis_terms) if gold_diagnosis_terms else ""
